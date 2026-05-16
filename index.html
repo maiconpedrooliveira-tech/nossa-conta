@@ -108,8 +108,8 @@ tr:last-child td{border-bottom:none;}
 .av-cat{font-size:10px;background:var(--s3);color:var(--muted);padding:1px 6px;border-radius:8px;}
 .av-date{font-size:11px;color:var(--muted2);}
 .av-val{font-weight:600;min-width:70px;text-align:right;}
-.av-del{background:none;border:none;color:var(--muted2);cursor:pointer;font-size:13px;padding:2px 4px;}
-.av-del:hover{color:var(--red);}
+.av-del{background:none;border:none;color:var(--muted2);cursor:pointer;font-size:16px;padding:6px 10px;line-height:1;border-radius:6px;}
+.av-del:hover{color:var(--red);background:rgba(248,113,113,0.1);}
 /* Chat */
 .chat-section{background:var(--s1);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:16px;}
 .chat-head{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
@@ -487,7 +487,7 @@ tr:last-child td{border-bottom:none;}
 <div class="overlay" id="modalNewMonth">
   <div class="modal">
     <h3>+ Novo Mês</h3>
-    <p>Cria com as contas fixas do mês anterior já prontas.</p>
+    <p>Cria o mês com apenas as <strong>contas fixas</strong> copiadas. Carro, avulsas e acertos começam zerados.</p>
     <div class="field"><label>Mês</label>
       <select id="nm-month">
         <option value="1">Janeiro</option><option value="2">Fevereiro</option><option value="3">Março</option>
@@ -571,6 +571,9 @@ var SEED_MARCO={
 var API_URL='https://script.google.com/macros/s/AKfycbzxyN5qN_ZZnxorraVtim_Qs4F6jATRjCo-ThTyqSk5H-LcmIotJ8fC2odJUFTAD0GF/exec';
 var appData={}, selMonth='2025-03';
 
+// Helper para gerar ID único — FIX bug 1
+function genId(){return 'av_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,8);}
+
 // ── PIN ──
 var pinBuf='';
 function pinPress(d){
@@ -614,7 +617,9 @@ async function loadData(){
       if(remote&&remote.months){
         var remoteAv=0,localAv=0;
         Object.values(remote.months).forEach(function(m){remoteAv+=(m.avulsas||[]).length;});
-        Object.values(appData.months).forEach(function(m){localAv+=(m.avulsas||[]).length;});
+        Object.values(appData.months).forEach(function(m){remoteAv;localAv+=(m.avulsas||[]).length;});
+        // FIX bug 2: só sobrescreve se remote estritamente tem mais meses OU mais avulsas globais
+        // Não sobrescreve um mês recém criado/limpo localmente com versão antiga
         if(Object.keys(remote.months).length>Object.keys(appData.months).length||remoteAv>localAv){
           appData=remote;
           if(!appData.months['2025-03']){appData.months['2025-03']=JSON.parse(JSON.stringify(SEED_MARCO));}
@@ -662,10 +667,8 @@ function calcTotals(key){
   var iC=0,mC=0;
   md.carro.forEach(function(c){if(c.status!=='pago')return;iC+=c.isaVal||0;mC+=c.maiconVal||0;});
   var iDevFixasTotal=iDevFixas+(iC+mC)*ISA_PCT;
-  // Etapa 1: acerto fixas = (iF+iC) - iDevFixasTotal  (neg = isa deve maicon)
   var iAcertoFixas=(iF+iC)-iDevFixasTotal;
 
-  // Etapa 2: avulsas 50/50
   var iA=0,mA=0,iInd=0,mInd=0;
   md.avulsas.forEach(function(a){
     var ind=a.individual||0,comp=Math.max(0,a.valor-ind);
@@ -673,9 +676,9 @@ function calcTotals(key){
   });
   var avt=iA+mA;
   var metadeAv=avt*0.5;
-  var saldoAv=iA-metadeAv; // pos = maicon deve isa
+  var saldoAv=iA-metadeAv;
 
-  var resultadoFinal=iAcertoFixas+saldoAv; // neg=isa deve, pos=maicon deve
+  var resultadoFinal=iAcertoFixas+saldoAv;
   return{
     iF:iF,mF:mF,iC:iC,mC:mC,iA:iA,mA:mA,iInd:iInd,mInd:mInd,
     iT:iF+iC+iA+iInd,mT:mF+mC+mA+mInd,
@@ -686,7 +689,6 @@ function calcTotals(key){
   };
 }
 
-// ── CALC PENDING (apenas avulsas não acertadas) ──
 function calcPending(){
   var md=getM(selMonth);
   var gi=md.acertos.length;
@@ -698,11 +700,10 @@ function calcPending(){
   });
   var avt=iA+mA;
   var metadeAv=avt*0.5;
-  var saldoAv=iA-metadeAv; // pos=maicon deve isa
+  var saldoAv=iA-metadeAv;
   return{iA:iA,mA:mA,iInd:iInd,mInd:mInd,avt:avt,metadeAv:metadeAv,saldoAv:saldoAv,pending:pending,gi:gi};
 }
 
-// ── RENDER ALL ──
 function renderAll(){renderMonthNav();renderResumo();renderFixas();renderCarro();renderAvulsas();renderComparar();renderMedias();}
 
 function renderMonthNav(){
@@ -713,7 +714,6 @@ function renderMonthNav(){
     var lbl=MONTHS[m-1].slice(0,3)+' '+p[0];
     return'<button class="mnav-btn'+(k===selMonth?' active':'')+'" onclick="switchMonth(\''+k+'\')">'+lbl+'</button>';
   }).join('');
-  // Populate copy dropdowns
   var cpSels=['nm-copy','cmp-a','cmp-b'];
   cpSels.forEach(function(id){
     var sel=document.getElementById(id);
@@ -736,7 +736,6 @@ function renderResumo(){
   document.getElementById('heroAmt').textContent=fmt(grand);
   document.getElementById('heroSub').textContent=grand===0?'Sem registros':MONTHS[parseInt(selMonth.split('-')[1])-1]+' '+selMonth.split('-')[0];
 
-  // Fixas progress
   var fp=0,ft=md.fixas.length,fpago=0,fpend=0;
   md.fixas.forEach(function(f){if(f.status==='pago'){fp++;fpago+=f.valor;}else fpend+=f.valor;});
   var pct=ft?Math.round(fp/ft*100):0;
@@ -744,7 +743,6 @@ function renderResumo(){
   document.getElementById('fixas-prog-t').textContent=ft;
   document.getElementById('fixas-prog-fill').style.width=pct+'%';
 
-  // Teto avulsas
   var teto=getTeto();
   var usedAv=t.avt;
   var pctAv=teto?Math.min(100,Math.round(usedAv/teto*100)):0;
@@ -752,7 +750,6 @@ function renderResumo(){
   document.getElementById('teto-max').textContent=fmt(teto);
   document.getElementById('teto-fill').style.width=pctAv+'%';
 
-  // Cards
   document.getElementById('r-isa-f').textContent=fmt(t.iF);
   document.getElementById('r-isa-c').textContent=fmt(t.iC);
   document.getElementById('r-isa-a').textContent=fmt(t.iA+t.iInd);
@@ -762,7 +759,6 @@ function renderResumo(){
   document.getElementById('r-mai-a').textContent=fmt(t.mA+t.mInd);
   document.getElementById('r-mai-t').textContent=fmt(t.mT);
 
-  // Acerto 2 etapas
   var temDados=t.totalLancado>0;
   var quemEl=document.getElementById('bal-quem'),valEl=document.getElementById('bal-val');
   if(!temDados){
@@ -792,12 +788,10 @@ function renderResumo(){
     else{quemEl.textContent='Maicon paga Isa';valEl.textContent=fmt(diff);valEl.style.color='var(--maicon)';}
   }
 
-  // Individuais
   var hasInd=(t.iInd+t.mInd)>0;
   document.getElementById('bal-ind-box').style.display=hasInd?'block':'none';
   if(hasInd){document.getElementById('bal-ind-isa').textContent=fmt(t.iInd);document.getElementById('bal-ind-mai').textContent=fmt(t.mInd);}
 
-  // Acertos history
   var histEl=document.getElementById('acertos-hist');
   if(md.acertos&&md.acertos.length){
     var rows=md.acertos.map(function(ac){
@@ -807,7 +801,6 @@ function renderResumo(){
   } else histEl.innerHTML='';
 }
 
-// ── FIXAS ──
 function getIsaDev(f){
   var isaAlug=getIsaAluguel();
   var isAlug=/aluguel/i.test(f.desc||'');
@@ -869,7 +862,6 @@ function addFixa(){
   document.getElementById('af-desc').value='';document.getElementById('af-val').value='';
 }
 
-// ── CARRO ──
 function renderCarro(){
   var md=getM(selMonth),tb=document.getElementById('carro-tbody');
   if(!md.carro.length){tb.innerHTML='<tr><td colspan="6" style="color:var(--muted2);text-align:center;padding:24px;">Nenhum gasto</td></tr>';return;}
@@ -909,10 +901,15 @@ function addCarro(){
   document.getElementById('ac-desc').value='';document.getElementById('ac-isa').value='';document.getElementById('ac-maicon').value='';
 }
 
-// ── AVULSAS ──
+// ── AVULSAS ── (FIX bug 1)
 function renderAvulsas(){
   var md=getM(selMonth);
   var acertos=md.acertos||[];
+
+  // Migra avulsas antigas: garante que toda avulsa tem ID estável
+  var migrou=false;
+  md.avulsas.forEach(function(a){if(!a.id){a.id=genId();migrou=true;}});
+  if(migrou)saveData();
 
   // Breakdown por categoria
   var catMap={};
@@ -922,15 +919,19 @@ function renderAvulsas(){
     catMap[cat]+=a.valor;
   });
   var bd=document.getElementById('catBreakdown');
-  if(!Object.keys(catMap).length){bd.innerHTML='<div style="padding:12px 16px;color:var(--muted2);font-size:12px;">Por categoria</div>';return;}
-  var total=md.avulsas.reduce(function(s,a){return s+a.valor;},0);
-  bd.innerHTML=Object.entries(catMap).sort(function(a,b){return b[1]-a[1];}).map(function(e){
-    var pct=total?Math.round(e[1]/total*100):0;
-    return'<div style="padding:8px 16px;border-bottom:1px solid var(--border);">'
-      +'<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">'
-      +'<span>'+getCatLabel(e[0])+'</span><span>'+fmt(e[1])+'<span style="color:var(--muted);font-size:11px;margin-left:6px;">'+pct+'%</span></span></div>'
-      +'<div class="prog-bar"><div class="prog-fill" style="width:'+pct+'%;background:var(--maicon)"></div></div></div>';
-  }).join('');
+  if(!Object.keys(catMap).length){
+    // FIX bug 1: NÃO retorna mais. Apenas mostra mensagem e segue pra registros.
+    bd.innerHTML='<div style="padding:12px 16px;color:var(--muted2);font-size:12px;">Sem categorias ainda</div>';
+  } else {
+    var total=md.avulsas.reduce(function(s,a){return s+a.valor;},0);
+    bd.innerHTML=Object.entries(catMap).sort(function(a,b){return b[1]-a[1];}).map(function(e){
+      var pct=total?Math.round(e[1]/total*100):0;
+      return'<div style="padding:8px 16px;border-bottom:1px solid var(--border);">'
+        +'<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">'
+        +'<span>'+getCatLabel(e[0])+'</span><span>'+fmt(e[1])+'<span style="color:var(--muted);font-size:11px;margin-left:6px;">'+pct+'%</span></span></div>'
+        +'<div class="prog-bar"><div class="prog-fill" style="width:'+pct+'%;background:var(--maicon)"></div></div></div>';
+    }).join('');
+  }
 
   // Grupos de acertos
   var container=document.getElementById('avulsasGroups');
@@ -942,7 +943,8 @@ function renderAvulsas(){
     html+='<div class="avulsa-group"><div class="group-header settled">'
       +'<span>'+(ac.nota||'Acerto')+' — '+ac.data+'</span>'
       +'<span class="group-settled-tag">✓ '+ac.pagou+' pagou '+fmt(ac.valor)+'</span></div>'
-      +group.map(function(a,ai){return avItem(a,ai,gi,false);}).join('')+'</div>';
+      // FIX bug 1: agora deixa excluir mesmo de grupos acertados (caso lance errado)
+      +group.map(function(a){return avItem(a,true);}).join('')+'</div>';
   });
   var pending=md.avulsas.filter(function(a){return a.grupo===undefined||a.grupo===acertos.length;});
   if(pending.length){
@@ -950,13 +952,13 @@ function renderAvulsas(){
     var diff=Math.abs(iP-mP)/2,quem=iP>mP?'Maicon deve Isa':'Isa deve Maicon';
     html+='<div class="avulsa-group"><div class="group-header pending">'
       +'<span>Pendente</span><span style="font-size:10px;">'+quem+': '+fmt(diff)+'</span></div>'
-      +pending.map(function(a,ai){return avItem(a,ai,acertos.length,true);}).join('')+'</div>';
+      +pending.map(function(a){return avItem(a,true);}).join('')+'</div>';
   }
   container.innerHTML=html||'<div style="padding:24px;color:var(--muted2);font-size:12px;text-align:center;">Nenhuma compra ainda</div>';
 }
 
-function avItem(a,_,_gi,canDel){
-  var realIdx=getM(selMonth).avulsas.indexOf(a);
+// FIX bug 1: usa a.id (ID estável) em vez de indexOf, que era frágil
+function avItem(a,canDel){
   return'<div class="avulsa-item">'
     +'<div class="av-dot '+(a.pessoa==='Isa'?'dot-isa':'dot-maicon')+'"></div>'
     +'<span class="av-person" style="color:'+(a.pessoa==='Isa'?'var(--isa)':'var(--maicon)')+'">'+a.pessoa+'</span>'
@@ -964,21 +966,27 @@ function avItem(a,_,_gi,canDel){
     +(a.cat?'<span class="av-cat">'+getCatLabel(a.cat)+'</span>':'')
     +'<span class="av-date">'+(a.data||'')+'</span>'
     +'<span class="av-val">'+fmt(a.valor)+'</span>'
-    +(canDel?'<button class="av-del" onclick="delAvulsa('+realIdx+')">✕</button>':'')
+    +(canDel?'<button class="av-del" onclick="delAvulsa(\''+a.id+'\')" title="Excluir">✕</button>':'')
     +'</div>';
 }
 
-function delAvulsa(i){if(!confirm('Excluir?'))return;getM(selMonth).avulsas.splice(i,1);saveData();renderAvulsas();renderResumo();}
+// FIX bug 1: recebe ID, busca por findIndex (não quebra após filter/ordem)
+function delAvulsa(id){
+  if(!confirm('Excluir esta compra?'))return;
+  var md=getM(selMonth);
+  var idx=md.avulsas.findIndex(function(a){return a.id===id;});
+  if(idx<0){alert('Item não encontrado — atualize a página.');return;}
+  md.avulsas.splice(idx,1);
+  saveData();renderAvulsas();renderResumo();
+}
 
-// ── ACERTO (apenas avulsas PENDENTES) ──
+// ── ACERTO ──
 function openSettle(){
   var md=getM(selMonth);
   var p=calcPending();
   if(!p.avt&&!p.iInd&&!p.mInd){alert('Nenhuma compra pendente para acertar.');return;}
 
-  // Calcula valor do acerto considerando também o saldo de fixas acumulado
-  // Mas o acerto de avulsas é só das pendentes — o usuário pediu isso
-  var saldo=p.saldoAv; // pos=maicon deve isa, neg=isa deve
+  var saldo=p.saldoAv;
   var diff=Math.abs(saldo);
   var pagou=saldo<0?'Isa':'Maicon';
   var recebe=pagou==='Isa'?'Maicon':'Isa';
@@ -1004,7 +1012,6 @@ function confirmSettle(){
   var diff=Math.abs(saldo);
   var pagou=saldo<0?'Isa':'Maicon';
   var gi=p.gi;
-  // Tag pending avulsas with current group index
   p.pending.forEach(function(a){a.grupo=gi;});
   var now=new Date();
   var nota=document.getElementById('settle-note').value.trim()||('Acerto '+String(now.getDate()).padStart(2,'0')+'/'+String(now.getMonth()+1).padStart(2,'0'));
@@ -1016,7 +1023,9 @@ function confirmSettle(){
   addMsg('ai','✅ Acerto registrado!\n\n'+pagou+' paga '+fmt(diff)+'.\n\nPróximas compras começam um novo período.');
 }
 
-// ── NOVO MÊS ──
+// ── NOVO MÊS ── (FIX bug 2)
+// Copia APENAS as fixas do mês de origem. Carro, avulsas e acertos sempre vazios.
+// Todas as fixas vêm forçadas com status 'pendente' (mês novo, nada pago).
 function confirmNewMonth(){
   var m=document.getElementById('nm-month').value;
   var y=document.getElementById('nm-year').value;
@@ -1024,9 +1033,28 @@ function confirmNewMonth(){
   if(appData.months&&appData.months[k]){alert('Mês já existe!');return;}
   var src=document.getElementById('nm-copy').value;
   var srcMd=src&&appData.months&&appData.months[src];
-  var newFixas=srcMd?srcMd.fixas.map(function(f){return Object.assign({},f,{status:'pendente'});}):[];
+
+  // Deep clone explícito campo por campo (não usa Object.assign que poderia copiar lixo extra)
+  var newFixas=[];
+  if(srcMd&&Array.isArray(srcMd.fixas)){
+    newFixas=srcMd.fixas.map(function(f){
+      return{
+        desc:f.desc,
+        valor:f.valor,
+        pagaPor:f.pagaPor,
+        divisao:f.divisao||'proporcional',
+        status:'pendente'
+      };
+    });
+  }
   if(!appData.months)appData.months={};
-  appData.months[k]={fixas:newFixas,carro:[],avulsas:[],acertos:[]};
+  // Cria o mês explicitamente zerado: SÓ as fixas copiadas, tudo mais vazio
+  appData.months[k]={
+    fixas:newFixas,
+    carro:[],
+    avulsas:[],
+    acertos:[]
+  };
   selMonth=k;
   saveData();renderAll();closeOverlay('modalNewMonth');
 }
@@ -1068,7 +1096,6 @@ function showTyping(){
 function removeTyping(){var t=document.getElementById('typing');if(t)t.remove();}
 
 async function callAI(text,imgBase64){
-  // Usa Apps Script para processar texto (sem depender da API Anthropic)
   try{
     var resp=await fetch(API_URL,{
       method:'POST',
@@ -1077,7 +1104,6 @@ async function callAI(text,imgBase64){
     var data=await resp.json();
     return data;
   }catch(e){
-    // Fallback: tenta processar localmente
     return parseLocal(text);
   }
 }
@@ -1126,7 +1152,8 @@ async function sendMsg(customText,imgBase64,imgUrl){
       var md=getM(selMonth);
       var gi=md.acertos.length;
       result.records.forEach(function(rec){
-        md.avulsas.push({pessoa:rec.pessoa,desc:rec.desc,data:rec.data||'',valor:rec.valor||0,cat:rec.cat||'outros',grupo:gi,individual:0});
+        // FIX bug 1: novas avulsas já entram com ID
+        md.avulsas.push({id:genId(),pessoa:rec.pessoa,desc:rec.desc,data:rec.data||'',valor:rec.valor||0,cat:rec.cat||'outros',grupo:gi,individual:0});
       });
       saveData();renderAvulsas();renderResumo();
     }
